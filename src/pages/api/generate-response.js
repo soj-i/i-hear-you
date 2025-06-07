@@ -34,7 +34,7 @@ export default async function handler(req, res) {
 
       let generatedResponse = "";
 
-      // Collect the streamed response - snippet from openAI 
+      // collect the streamed response - snippet from openAI 
       for await (const event of stream) {
         if (event.choices && event.choices[0].delta && event.choices[0].delta.content) {
           generatedResponse += event.choices[0].delta.content;
