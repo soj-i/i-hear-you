@@ -2,29 +2,107 @@
 
 import React, { useState } from "react";
 
+interface Paragraph {
+  text: string;
+  response?: string;
+  isLoading?: boolean;
+}
+
+interface ParagraphPayloads {
+  paragraphs: Paragraph[];
+  currentParagraph: number;
+}
+
 export default function Home() {
-  const [journalEntry, setJournalEntry] = useState("");
-  const [storyResponse, setStoryResponse] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [paragraphPayloads, setParagraphPayloads] = useState<ParagraphPayloads>({
+    paragraphs: [],
+    currentParagraph: 0,
+  });
+  const [handleText, setHandleText] = useState("");
+  const [selectedParagraphIndex, setSelectedParagraphIndex] = useState<number | null>(null); // Track the selected paragraph
 
-  const mockNotes = [
-    { id: 1, title: "Study Stress - April 2" },
-    { id: 2, title: "Family Conflict - March 27" },
-    { id: 3, title: "Feeling Lost - March 20" },
-  ];
+  const empathyHandler = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value;
 
-  const handleGenerateStory = async () => {
-    if (!journalEntry.trim()) return;
-    setIsLoading(true);
-    try {
-      const mockStory = "There was a student once who transferred midyear and felt like she was in a different world. She studied every night alone in the library, convinced she was falling behind. But one afternoon, she asked a stranger in her CS class a small question—and that moment cracked open a door. You never know who’s waiting to help if you let them in."
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setStoryResponse(mockStory);
-    } catch (error) {
-      console.error("Error generating story:", error);
-    } finally {
-      setIsLoading(false);
+    if (newText.endsWith("\n\n")) {
+      setParagraphPayloads((prev) => {
+        const updatedParagraphs = [
+          ...prev.paragraphs,
+          { text: handleText.trim(), isLoading: false },
+        ];
+        console.log("Updated Paragraphs Array:", updatedParagraphs);
+        return {
+          paragraphs: updatedParagraphs,
+          currentParagraph: prev.currentParagraph + 1,
+        };
+      });
+
+      setHandleText("");
+    } else {
+      setHandleText(newText);
     }
+  };
+
+  const handleGenerateResponse = async (index: number) => {
+    // Set the loading state for the paragraph
+    setParagraphPayloads((prev) => {
+      const updatedParagraphs = [...prev.paragraphs];
+      updatedParagraphs[index].isLoading = true;
+      return { ...prev, paragraphs: updatedParagraphs };
+    });
+
+    try {
+      // Prepare context by combining all previous paragraphs
+      const context = paragraphPayloads.paragraphs
+        .slice(0, index)
+        .map((p) => p.text)
+        .join("\n\n");
+
+      // Make a POST request to the backend API
+      const response = await fetch("/api/generate-response", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userInput: paragraphPayloads.paragraphs[index].text,
+          context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate response");
+      }
+
+      const data = await response.json();
+
+      // Update the paragraph with the generated response
+      setParagraphPayloads((prev) => {
+        const updatedParagraphs = [...prev.paragraphs];
+        updatedParagraphs[index].response = data.response;
+        updatedParagraphs[index].isLoading = false;
+        return { ...prev, paragraphs: updatedParagraphs };
+      });
+    } catch (error) {
+      console.error("Error generating response:", error);
+
+      // Reset the loading state in case of an error
+      setParagraphPayloads((prev) => {
+        const updatedParagraphs = [...prev.paragraphs];
+        updatedParagraphs[index].isLoading = false;
+        return { ...prev, paragraphs: updatedParagraphs };
+      });
+    }
+  };
+
+  const toggleRightPanel = (index: number) => {
+    // If the panel is being opened and the response is not already generated, start generating the response
+    if (selectedParagraphIndex !== index && !paragraphPayloads.paragraphs[index].response) {
+      handleGenerateResponse(index); // Start generating the response
+    }
+
+    // Toggle the selected paragraph index
+    setSelectedParagraphIndex((prevIndex) => (prevIndex === index ? null : index));
   };
 
   return (
@@ -32,18 +110,6 @@ export default function Home() {
       {/* Sidebar */}
       <aside className="w-64 bg-gray-100 text-black p-6 space-y-4 shadow-md border-r border-gray-300">
         <h2 className="text-2xl font-bold mb-4 text-lime-600">Your Notes</h2>
-        <ul className="space-y-3">
-          {mockNotes.map(note => (
-            <li key={note.id}>
-              <button
-                className="w-full h-16 text-left bg-gray-50 hover:bg-gray-200 text-black px-3 py-2 rounded shadow-sm border border-gray-300 truncate"
-                title={note.title}
-              >
-                {note.title}
-              </button>
-            </li>
-          ))}
-        </ul>
       </aside>
 
       {/* Main Content */}
@@ -51,30 +117,52 @@ export default function Home() {
         <section className="flex-1 max-w-2xl">
           <h1 className="text-4xl font-bold mb-6 border-b-4 border-lime-500 pb-2">I Hear You</h1>
 
+          <div className="mb-6">
+            {paragraphPayloads.paragraphs.map((paragraph, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between mb-4 leading-relaxed"
+              >
+                <p className="flex-1 break-words overflow-wrap">{paragraph.text}</p>
+                <button
+                  className={`ml-4 p-2 rounded-full ${
+                    paragraph.isLoading
+                      ? "bg-gray-200 text-gray-600"
+                      : paragraph.response
+                      ? "bg-green-200 text-green-600"
+                      : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                  }`}
+                  onClick={() => toggleRightPanel(index)}
+                  disabled={paragraph.isLoading}
+                  title="Generate Response"
+                >
+                  {paragraph.isLoading ? "..." : "⋮"}
+                </button>
+              </div>
+            ))}
+          </div>
+
           <textarea
-            className="w-full h-[32rem] p-6 text-lg bg-white border border-gray-300 rounded-lg shadow-inner font-serif leading-relaxed focus:outline-lime-500 mb-6"
-            placeholder="Start writing here..."
-            value={journalEntry}
-            onChange={(e) => setJournalEntry(e.target.value)}
+            className="w-full h-[8rem] p-4 text-lg bg-white border border-gray-300 rounded-lg shadow-inner font-serif focus:outline-none leading-relaxed"
+            placeholder="Start typing your next paragraph..."
+            value={handleText}
+            onChange={(e) => empathyHandler(e)}
           />
-
-          {/* <button
-            onClick={handleGenerateStory}
-            className="w-1/3 bg-lime-500 hover:bg-lime-600 text-black font-semibold py-3 rounded text-xl shadow-md disabled:opacity-50"
-            disabled={isLoading}
-          >
-            {isLoading ? "Generating..." : "Reflect"}
-          </button> */}
         </section>
 
-        <section className="w-1/3">
-          {storyResponse && (
-            <div className="bg-gray-100 p-6 rounded shadow text-lg">
-              <h2 className="font-semibold mb-3 text-lime-700">Reflection</h2>
-              <p className="whitespace-pre-line leading-relaxed">{storyResponse}</p>
-            </div>
-          )}
-        </section>
+        {/* Right-Side Panel */}
+        {selectedParagraphIndex !== null && (
+          <section className="w-1/3 bg-gray-50 p-6 shadow-md border-l border-gray-300">
+            <h2 className="text-xl font-bold mb-4">Details</h2>
+            {paragraphPayloads.paragraphs[selectedParagraphIndex].response ? (
+              <p>
+                <strong>Response:</strong> {paragraphPayloads.paragraphs[selectedParagraphIndex].response}
+              </p>
+            ) : (
+              <p className="text-gray-500">No response generated yet.</p>
+            )}
+          </section>
+        )}
       </main>
     </div>
   );
